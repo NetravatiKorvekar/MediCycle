@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedicineShare - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+</head>
+
+<body>
+    <!-- CRITICAL: Clear any password reset flags on page load -->
+    <script>
+        (function() {
+            // Clear all password reset related data from browser storage
+            const keysToRemove = [
+                'passwordReset', 'reset_email', 'otp_verified', 
+                'resetPassword', 'password_reset', 'otp', 'reset_token'
+            ];
+            
+            keysToRemove.forEach(key => {
+                localStorage.removeItem(key);
+                sessionStorage.removeItem(key);
+            });
+            
+            console.log('✅ Cleared all password reset flags from browser storage');
+            
+            // Prevent any cached redirects
+            if (window.history.replaceState) {
+                window.history.replaceState(null, null, window.location.href);
+            }
+        })();
+    </script>
+
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-text"><span class="blue-text">medi</span><span class="green-text">cycle</span></div>
+            </div>
+            <p>Share Unused Medicines</p>
+            <div class="tabs">
+                <div class="tab active" id="login-tab">Admin Login</div>
+            </div>
+        </div>
+
+        <div class="forms-container">
+            <!-- Login Form -->
+            <form method="POST" action="{{ url_for('login_signup') }}" class="form active" id="login-form">
+                <input type="hidden" name="form_type" value="login">
+                <div class="form-group">
+                    <label for="login-email">Email Address</label>
+                    <input type="email" id="login-email" name="email" class="form-control"
+                        placeholder="Enter your email" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" class="form-control"
+                        placeholder="Enter your password" required>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="remember-me" name="remember_me">
+                    <label for="remember-me">Remember me</label>
+                </div>
+                <button type="submit" class="btn btn-primary" id="login-button">Login</button>
+                <div class="divider">or</div>
+                <!-- <button id="firebase-google-login" class="btn btn-google" type="button">Continue with Google</button> -->
+                <div class="form-footer">
+                    <a href="{{ url_for('forgot_password') }}">Forgot Password?</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase JS SDK (CDN) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script>
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyCx9e1dt9AkEN8PHL1r7kiYuvN-YDft3Yg",
+            authDomain: "medicycle-e87d5.firebaseapp.com",
+            projectId: "medicycle-e87d5",
+            storageBucket: "medicycle-e87d5.appspot.com",
+            messagingSenderId: "367733602883"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        // Google Auth logic
+        document.getElementById('firebase-google-login')?.addEventListener('click', googleLogin);
+
+        function googleLogin() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider)
+                .then(result => {
+                    const user = result.user;
+                    // Send user info to backend
+                    fetch('/firebase-login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            email: user.email,
+                            fullname: user.displayName,
+                            uid: user.uid
+                        })
+                    })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                window.location.href = data.redirect || '/';
+                            } else {
+                                alert(data.message || 'Login failed');
+                            }
+                        });
+                })
+                .catch(error => {
+                    alert('Google Login Error: ' + error.message);
+                });
+        }
+    </script>
+    <script>
+        // Form control animation
+        const formControls = document.querySelectorAll('.form-control');
+        formControls.forEach(control => {
+            control.addEventListener('focus', () => {
+                control.style.borderColor = 'var(--primary-color)';
+                control.style.boxShadow = '0 0 0 3px rgba(33, 150, 243, 0.25)';
+            });
+
+            control.addEventListener('blur', () => {
+                control.style.boxShadow = 'none';
+                if (!control.value) {
+                    control.style.borderColor = 'var(--gray)';
+                }
+            });
+        });
+
+        // Button hover animation
+        const buttons = document.querySelectorAll('.btn');
+        buttons.forEach(button => {
+            button.addEventListener('mouseenter', () => {
+                if (button.classList.contains('btn-primary')) {
+                    button.style.transform = 'translateY(-2px)';
+                    button.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+                }
+            });
+
+            button.addEventListener('mouseleave', () => {
+                button.style.transform = 'translateY(0)';
+                button.style.boxShadow = '';
+            });
+        });
+
+        // Display flash messages if any
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const message = urlParams.get('message');
+            const type = urlParams.get('type');
+            
+            if (message) {
+                alert(message);
+            }
+        });
+    </script>
+</body>
+
+</html>
