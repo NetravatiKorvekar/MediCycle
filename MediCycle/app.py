@@ -1,5 +1,4 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from datetime import datetime, timedelta
@@ -8,6 +7,34 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
 import requests
+import uuid
+import re
+
+# Image validation
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[WARN] Pillow not installed. Image validation will be limited.")
+
+# OCR
+try:
+    import pytesseract
+    # Configure Tesseract path for Windows
+    TESSERACT_PATH = os.getenv('TESSERACT_CMD', r'C:\Program Files\Tesseract-OCR\tesseract.exe')
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("[WARN] pytesseract not installed. OCR will be disabled.")
+
+# ---- Image upload configuration ----
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB
+MIN_IMAGE_WIDTH = 800
+MIN_IMAGE_HEIGHT = 600
+UPLOAD_FOLDER = os.path.join('static', 'uploads')
 
 # Allow OAuth2 over HTTP for development
 # (Google OAuth related code removed)
@@ -217,6 +244,32 @@ def setup_database():
                 print(f"Error adding index_number column: {str(e)}")
                 conn.rollback()
     
+    # ---- medicine_images table ----
+    cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'medicine_images')")
+    med_images_exists = cur.fetchone()[0]
+
+    if not med_images_exists:
+        print("Creating medicine_images table...")
+        cur.execute('''
+        CREATE TABLE medicine_images (
+            id SERIAL PRIMARY KEY,
+            medicine_id INTEGER REFERENCES medicines(id) ON DELETE CASCADE,
+            front_image_url VARCHAR(500),
+            back_image_url VARCHAR(500),
+            expiry_batch_image_url VARCHAR(500),
+            ocr_medicine_name TEXT,
+            ocr_batch_number TEXT,
+            ocr_expiry_date TEXT,
+            ocr_verification_status VARCHAR(20) DEFAULT 'pending',
+            ocr_name_match BOOLEAN,
+            ocr_expiry_match BOOLEAN,
+            ocr_raw_front TEXT,
+            ocr_raw_back TEXT,
+            ocr_raw_expiry TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
     # Close connection
     cur.close()
     conn.close()
@@ -495,9 +548,16 @@ def find_medicine():
                 m.pincode,
                 u.fullname as donated_by,
                 u.email as donor_email,
-                u.id as donor_id
+                u.id as donor_id,
+                mi.front_image_url,
+                mi.back_image_url,
+                mi.expiry_batch_image_url,
+                mi.ocr_verification_status,
+                mi.ocr_name_match,
+                mi.ocr_expiry_match
             FROM medicines m
             JOIN users u ON m.user_id = u.id
+            LEFT JOIN medicine_images mi ON mi.medicine_id = m.id
             WHERE m.status = 'Accepted' 
             AND m.expiry_date >= CURRENT_DATE
         '''
@@ -564,6 +624,168 @@ def find_medicine():
         cur.close()
         conn.close()
 
+# ---- Helper: validate and save an uploaded image file ----
+def validate_and_save_image(file_storage, label):
+    """Validate image format, size, dimensions. Save to uploads/. Return (saved_path, error_message)."""
+    if not file_storage or file_storage.filename == '':
+        return None, f'{label} is required.'
+
+    filename = file_storage.filename
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if ext not in ALLOWED_EXTENSIONS:
+        return None, f'{label}: only JPG, JPEG, PNG files are allowed.'
+
+    # Read bytes once
+    file_bytes = file_storage.read()
+    if len(file_bytes) == 0:
+        return None, f'{label}: uploaded file is empty.'
+    if len(file_bytes) > MAX_IMAGE_SIZE_BYTES:
+        return None, f'{label}: file exceeds 5 MB limit.'
+
+    if PIL_AVAILABLE:
+        import io
+        try:
+            img = Image.open(io.BytesIO(file_bytes))
+            img.verify()   # raises on corrupt files
+            img = Image.open(io.BytesIO(file_bytes))  # re-open after verify
+            w, h = img.size
+            if w < MIN_IMAGE_WIDTH or h < MIN_IMAGE_HEIGHT:
+                return None, (f'{label}: image resolution {w}x{h} is too low. '
+                              f'Minimum required is {MIN_IMAGE_WIDTH}x{MIN_IMAGE_HEIGHT}.')
+        except Exception as ve:
+            return None, f'{label}: file does not appear to be a valid image ({ve}).'
+
+    # Generate unique filename and save
+    unique_name = f"{uuid.uuid4().hex}_{filename}"
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    save_path = os.path.join(UPLOAD_FOLDER, unique_name)
+    with open(save_path, 'wb') as f:
+        f.write(file_bytes)
+
+    relative_url = f'uploads/{unique_name}'
+    return relative_url, None
+
+
+# ---- Helper: run OCR on a saved image ----
+def run_ocr_on_image(relative_url):
+    """Return raw OCR text from the image at relative_url (under static/), or empty string."""
+    if not OCR_AVAILABLE or not relative_url:
+        return ''
+    try:
+        import pytesseract
+        from PIL import Image
+        img_path = os.path.join('static', relative_url)
+        img = Image.open(img_path)
+        text = pytesseract.image_to_string(img, config='--psm 6')
+        return text.strip()
+    except Exception as e:
+        print(f"[OCR] Error reading {relative_url}: {e}")
+        return ''
+
+
+# ---- Helper: extract structured fields from OCR text ----
+def extract_ocr_fields(ocr_text):
+    """Try to pull medicine name, batch number, expiry date from raw OCR text."""
+    result = {'medicine_name': '', 'batch_number': '', 'expiry_date': ''}
+    if not ocr_text:
+        return result
+
+    lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+
+    # Expiry date patterns: EXP / EXPIRY / MFG patterns
+    exp_patterns = [
+        r'(?:exp(?:iry)?|expiry date|use before|best before)[\s:./\-]*(\d{2}[/\-.\s]\d{2}[/\-.\s]\d{2,4})',
+        r'(?:exp(?:iry)?|expiry date|use before|best before)[\s:./\-]*(\w{3}[\s./\-]\d{2,4})',
+        r'(\d{2}[/\-.]\d{4})',
+        r'(\d{2}[/\-.]\d{2}[/\-.]\d{2,4})',
+    ]
+    for pat in exp_patterns:
+        m = re.search(pat, ocr_text, re.IGNORECASE)
+        if m:
+            result['expiry_date'] = m.group(1).strip()
+            break
+
+    # Batch number patterns
+    batch_patterns = [
+        r'(?:batch(?:\s*no\.?)?|lot(?:\s*no\.?)?|b\.?no\.?)[\s:./\-]*([A-Z0-9]+)',
+        r'(?:lot)[\s:./\-]*([A-Z0-9]+)',
+    ]
+    for pat in batch_patterns:
+        m = re.search(pat, ocr_text, re.IGNORECASE)
+        if m:
+            result['batch_number'] = m.group(1).strip()
+            break
+
+    # Medicine name: look for prominent uppercase text on front (heuristic — first long all-caps or mixed line)
+    for line in lines:
+        cleaned = re.sub(r'[^A-Za-z0-9\s]', '', line).strip()
+        if len(cleaned) >= 4:
+            result['medicine_name'] = cleaned
+            break
+
+    return result
+
+
+# ---- Helper: fuzzy compare two strings (for OCR verification) ----
+def fuzzy_match(a, b, threshold=0.6):
+    """Return True if strings are similar enough after normalization."""
+    if not a or not b:
+        return False
+    def normalize(s):
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+    na, nb = normalize(a), normalize(b)
+    if not na or not nb:
+        return False
+    # Simple Jaccard over character trigrams
+    def trigrams(s):
+        return set(s[i:i+3] for i in range(len(s)-2)) if len(s) >= 3 else set(s)
+    ta, tb = trigrams(na), trigrams(nb)
+    if not ta and not tb:
+        return True
+    if not ta or not tb:
+        return False
+    jaccard = len(ta & tb) / len(ta | tb)
+    return jaccard >= threshold
+
+
+# ---- Helper: compare expiry dates (OCR vs seller) ----
+def compare_expiry_dates(ocr_expiry, seller_expiry_str):
+    """Return True if OCR expiry reasonably matches seller-entered expiry date string."""
+    if not ocr_expiry or not seller_expiry_str:
+        return False
+    # Normalize both to year-month for comparison
+    def extract_ym(s):
+        s = re.sub(r'[^0-9a-zA-Z]', ' ', s).strip()
+        # Patterns: MM/YYYY, MM-YYYY, YYYY-MM, DD/MM/YYYY, etc.
+        m = re.search(r'(\d{4})[-/ ](\d{1,2})', s)
+        if m:
+            return (m.group(1), m.group(2).zfill(2))
+        m = re.search(r'(\d{1,2})[-/ ](\d{4})', s)
+        if m:
+            return (m.group(2), m.group(1).zfill(2))
+        m = re.search(r'(\d{2})[-/ ](\d{2})[-/ ](\d{2,4})', s)
+        if m:
+            parts = [m.group(1), m.group(2), m.group(3)]
+            if len(parts[2]) == 2:
+                parts[2] = '20' + parts[2]
+            return (parts[2], parts[0])
+        # Month name abbreviation
+        months = {'jan':'01','feb':'02','mar':'03','apr':'04','may':'05','jun':'06',
+                  'jul':'07','aug':'08','sep':'09','oct':'10','nov':'11','dec':'12'}
+        for abbr, num in months.items():
+            mo = re.search(rf'{abbr}', s, re.IGNORECASE)
+            if mo:
+                yr = re.search(r'(\d{4})', s)
+                if yr:
+                    return (yr.group(1), num)
+        return None
+    ym_ocr = extract_ym(ocr_expiry)
+    ym_seller = extract_ym(seller_expiry_str)
+    if ym_ocr and ym_seller:
+        return ym_ocr == ym_seller
+    return False
+
+
 @app.route('/list-medicine', methods=['GET', 'POST'])
 @login_required
 def list_medicine():
@@ -589,7 +811,7 @@ def list_medicine():
             city = request.form.get('city')
             area = request.form.get('area')
             pincode = request.form.get('pincode')
-            
+
             print("name:", name)
             print("quantity:", quantity)
             print("quantity_unit:", quantity_unit)
@@ -601,36 +823,110 @@ def list_medicine():
             print("city:", city)
             print("area:", area)
             print("pincode:", pincode)
-            
-            # Handle image upload
-            image_path = None
-            if 'image' in request.files:
-                image = request.files['image']
-                if image.filename != '':
-                    # Save image to static/uploads directory
-                    image_path = f"uploads/{image.filename}"
-                    image.save(os.path.join('static', image_path))
-            
+
+            # ---- Validate and save the three required medicine photos ----
+            front_file  = request.files.get('front_image')
+            back_file   = request.files.get('back_image')
+            expiry_file = request.files.get('expiry_batch_image')
+
+            front_url, err = validate_and_save_image(front_file, 'Front Photo')
+            if err:
+                return jsonify({'success': False, 'message': err})
+
+            back_url, err = validate_and_save_image(back_file, 'Back Photo')
+            if err:
+                # Clean up already-saved front
+                if front_url:
+                    try: os.remove(os.path.join('static', front_url))
+                    except: pass
+                return jsonify({'success': False, 'message': err})
+
+            expiry_url, err = validate_and_save_image(expiry_file, 'Expiry/Batch Photo')
+            if err:
+                for u in [front_url, back_url]:
+                    if u:
+                        try: os.remove(os.path.join('static', u))
+                        except: pass
+                return jsonify({'success': False, 'message': err})
+
+            # Keep existing image_path column pointing to front image (backward compat)
+            image_path = front_url
+
             conn = get_db_connection()
             cur = conn.cursor()
-            
+
             cur.execute('''
-                INSERT INTO medicines (name, quantity, quantity_unit, expiry_date,category, description, 
-                                     donation_type, price, city, area, pincode, user_id, image_path)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)
-            ''', (name, quantity, quantity_unit, expiry_date,category, description, 
+                INSERT INTO medicines (name, quantity, quantity_unit, expiry_date, category, description,
+                                       donation_type, price, city, area, pincode, user_id, image_path)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (name, quantity, quantity_unit, expiry_date, category, description,
                   donation_type, price, city, area, pincode, session['user']['id'], image_path))
-            
+            medicine_id = cur.fetchone()['id']
+
+            # ---- Run OCR ----
+            ocr_front_text  = run_ocr_on_image(front_url)
+            ocr_back_text   = run_ocr_on_image(back_url)
+            ocr_expiry_text = run_ocr_on_image(expiry_url)
+
+            # Extract fields from OCR (prioritise front for name, expiry image for expiry)
+            front_fields  = extract_ocr_fields(ocr_front_text)
+            expiry_fields = extract_ocr_fields(ocr_expiry_text)
+
+            ocr_medicine_name = front_fields.get('medicine_name', '')
+            ocr_batch_number  = expiry_fields.get('batch_number', '') or front_fields.get('batch_number', '')
+            ocr_expiry_date   = expiry_fields.get('expiry_date', '') or front_fields.get('expiry_date', '')
+
+            # ---- Compare OCR with seller data ----
+            name_match   = fuzzy_match(ocr_medicine_name, name)
+            expiry_match = compare_expiry_dates(ocr_expiry_date, expiry_date)
+
+            # Determine overall verification status
+            has_ocr = OCR_AVAILABLE and (ocr_front_text or ocr_expiry_text)
+            if not has_ocr:
+                ocr_status = 'unclear'   # No OCR results (tesseract not installed / illegible)
+            elif name_match and expiry_match:
+                ocr_status = 'matched'
+            elif not name_match and not expiry_match:
+                ocr_status = 'mismatched'
+            else:
+                ocr_status = 'unclear'   # Partial match — treat as unclear
+
+            # Store image record
+            cur.execute('''
+                INSERT INTO medicine_images
+                    (medicine_id, front_image_url, back_image_url, expiry_batch_image_url,
+                     ocr_medicine_name, ocr_batch_number, ocr_expiry_date, ocr_verification_status,
+                     ocr_name_match, ocr_expiry_match, ocr_raw_front, ocr_raw_back, ocr_raw_expiry)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (medicine_id, front_url, back_url, expiry_url,
+                  ocr_medicine_name, ocr_batch_number, ocr_expiry_date, ocr_status,
+                  name_match, expiry_match, ocr_front_text, ocr_back_text, ocr_expiry_text))
+
             conn.commit()
             cur.close()
             conn.close()
-            
+
+            print(f"[LIST] Medicine {medicine_id} listed. OCR status: {ocr_status}")
+            print(f"[OCR] name_match={name_match}, expiry_match={expiry_match}")
+
+            response_data = {
+                'success': True,
+                'message': 'Medicine listed successfully!',
+                'ocr_status': ocr_status,
+                'ocr_name_match': name_match,
+                'ocr_expiry_match': expiry_match,
+                'ocr_medicine_name': ocr_medicine_name,
+                'ocr_expiry_date': ocr_expiry_date,
+                'ocr_batch_number': ocr_batch_number,
+            }
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'success': True, 'message': 'Medicine listed successfully!'})
+                return jsonify(response_data)
             else:
                 flash('Medicine listed successfully!', 'success')
                 return redirect(url_for('my_activities'))
         except Exception as e:
+            import traceback; traceback.print_exc()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return jsonify({'success': False, 'message': str(e)}), 500
             else:

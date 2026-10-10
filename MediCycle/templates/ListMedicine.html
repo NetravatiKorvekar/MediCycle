@@ -141,7 +141,7 @@
         <!-- ListMedicine.html -->
         <div class="form-container">
             
-            <form id="list-medicine-form" action="{{ url_for('list_medicine') }}" method="POST">
+            <form id="list-medicine-form" action="{{ url_for('list_medicine') }}" method="POST" enctype="multipart/form-data">
                 <div class="form-section">
                 <h3><span class="section-icon">💊</span>Medicine Details</h3>
                 <div class="form-group">
@@ -263,9 +263,80 @@
                     </div>
                 </div>
 
+                <!-- =====================================================
+                     MEDICINE PHOTOS SECTION (NEW)
+                     ===================================================== -->
+                <div class="form-section" id="photos-section">
+                    <h3><span class="section-icon">📷</span>Medicine Photos <span style="color:#e53e3e; font-size:13px; font-weight:400;">(All 3 required)</span></h3>
+                    <p style="font-size:13px; color:#6b7280; margin-bottom:18px;">
+                        Please upload clear photographs of the medicine package. Minimum resolution: 800×600 px. Max 5 MB each. Accepted: JPG, JPEG, PNG.
+                    </p>
+
+                    <div class="photo-upload-grid">
+                        <!-- Front Photo -->
+                        <div class="photo-upload-item">
+                            <label for="front_image" class="required-label">Front Photo</label>
+                            <p style="font-size:12px; color:#6b7280; margin-bottom:8px;">Upload front side of medicine package</p>
+                            <div class="photo-drop-zone" id="front-drop-zone">
+                                <div class="photo-placeholder" id="front-placeholder">
+                                    <span style="font-size:36px;">📷</span>
+                                    <p>Click or drag to upload</p>
+                                    <p style="font-size:11px; color:#9ca3af;">JPG / JPEG / PNG &bull; Max 5 MB</p>
+                                </div>
+                                <img id="front-preview" src="" alt="Front preview" style="display:none; width:100%; height:100%; object-fit:cover; border-radius:8px;" />
+                                <input type="file" id="front_image" name="front_image" accept=".jpg,.jpeg,.png" required style="position:absolute;inset:0;opacity:0;cursor:pointer;" />
+                            </div>
+                            <div class="photo-status" id="front-status"></div>
+                        </div>
+
+                        <!-- Back Photo -->
+                        <div class="photo-upload-item">
+                            <label for="back_image" class="required-label">Back Photo</label>
+                            <p style="font-size:12px; color:#6b7280; margin-bottom:8px;">Upload back side of medicine package</p>
+                            <div class="photo-drop-zone" id="back-drop-zone">
+                                <div class="photo-placeholder" id="back-placeholder">
+                                    <span style="font-size:36px;">📷</span>
+                                    <p>Click or drag to upload</p>
+                                    <p style="font-size:11px; color:#9ca3af;">JPG / JPEG / PNG &bull; Max 5 MB</p>
+                                </div>
+                                <img id="back-preview" src="" alt="Back preview" style="display:none; width:100%; height:100%; object-fit:cover; border-radius:8px;" />
+                                <input type="file" id="back_image" name="back_image" accept=".jpg,.jpeg,.png" required style="position:absolute;inset:0;opacity:0;cursor:pointer;" />
+                            </div>
+                            <div class="photo-status" id="back-status"></div>
+                        </div>
+
+                        <!-- Expiry / Batch Photo -->
+                        <div class="photo-upload-item">
+                            <label for="expiry_batch_image" class="required-label">Expiry / Batch Photo</label>
+                            <p style="font-size:12px; color:#6b7280; margin-bottom:8px;">Clear photo of expiry date &amp; batch area</p>
+                            <div class="photo-drop-zone" id="expiry-drop-zone">
+                                <div class="photo-placeholder" id="expiry-placeholder">
+                                    <span style="font-size:36px;">📷</span>
+                                    <p>Click or drag to upload</p>
+                                    <p style="font-size:11px; color:#9ca3af;">JPG / JPEG / PNG &bull; Max 5 MB</p>
+                                </div>
+                                <img id="expiry-preview" src="" alt="Expiry preview" style="display:none; width:100%; height:100%; object-fit:cover; border-radius:8px;" />
+                                <input type="file" id="expiry_batch_image" name="expiry_batch_image" accept=".jpg,.jpeg,.png" required style="position:absolute;inset:0;opacity:0;cursor:pointer;" />
+                            </div>
+                            <div class="photo-status" id="expiry-status"></div>
+                        </div>
+                    </div>
+
+                    <!-- OCR Result Panel (shown after submission) -->
+                    <div id="ocr-result-panel" style="display:none; margin-top:20px; padding:16px; border-radius:10px; background:#f0fdf4; border:1px solid #86efac;">
+                        <h4 style="margin:0 0 10px; color:#166534; font-size:15px;">📋 Photo Verification Result</h4>
+                        <div id="ocr-result-content"></div>
+                        <p style="font-size:11px; color:#6b7280; margin-top:10px;">
+                            <em>Note: OCR verification only checks whether the visible package text appears to match your entered details. It does not verify the authenticity, safety, or medical suitability of the medicine.</em>
+                        </p>
+                    </div>
+                </div>
+                <!-- END MEDICINE PHOTOS SECTION -->
+
                 <div class="form-footer">
                     <button type="submit" class="btn btn-primary" id="submit-button">List Medicine</button>
                 </div>
+
 
                 <div class="success-message" id="success-message" style="display: none;">
                     Medicine listed successfully!
@@ -424,6 +495,90 @@
                 }, 3000);
             }
 
+            // ===== Photo preview handlers =====
+            function setupPhotoPreview(inputId, previewId, placeholderId, statusId) {
+                const input = document.getElementById(inputId);
+                const preview = document.getElementById(previewId);
+                const placeholder = document.getElementById(placeholderId);
+                const status = document.getElementById(statusId);
+                if (!input) return;
+                input.addEventListener('change', function () {
+                    const file = this.files[0];
+                    if (!file) return;
+                    // Client-side size check
+                    if (file.size > 5 * 1024 * 1024) {
+                        status.innerHTML = '<span style="color:#e53e3e;">&#x274C; File exceeds 5 MB limit.</span>';
+                        this.value = '';
+                        return;
+                    }
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    if (!['jpg','jpeg','png'].includes(ext)) {
+                        status.innerHTML = '<span style="color:#e53e3e;">&#x274C; Only JPG, JPEG, PNG allowed.</span>';
+                        this.value = '';
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        preview.src = e.target.result;
+                        preview.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        status.innerHTML = '<span style="color:#16a34a;">&#x2714; ' + file.name + '</span>';
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+            setupPhotoPreview('front_image', 'front-preview', 'front-placeholder', 'front-status');
+            setupPhotoPreview('back_image',  'back-preview',  'back-placeholder',  'back-status');
+            setupPhotoPreview('expiry_batch_image', 'expiry-preview', 'expiry-placeholder', 'expiry-status');
+
+            // ===== OCR result rendering =====
+            function renderOcrResult(data) {
+                const panel = document.getElementById('ocr-result-panel');
+                const content = document.getElementById('ocr-result-content');
+                if (!panel || !content) return;
+
+                const statusEmoji = { matched: '\u2705', mismatched: '\u274C', unclear: '\u26A0\uFE0F' };
+                const statusLabel = { matched: 'Matched', mismatched: 'Mismatched', unclear: 'Unclear' };
+                const statusColor = { matched: '#166534', mismatched: '#991b1b', unclear: '#92400e' };
+                const statusBg   = { matched: '#f0fdf4', mismatched: '#fef2f2', unclear: '#fffbeb' };
+                const statusBorder = { matched: '#86efac', mismatched: '#fca5a5', unclear: '#fcd34d' };
+
+                const s = data.ocr_status || 'unclear';
+                panel.style.background = statusBg[s];
+                panel.style.borderColor = statusBorder[s];
+
+                let nameRow = data.ocr_medicine_name
+                    ? (data.ocr_name_match
+                        ? '<span style="color:#16a34a;">\u2714 Name appears to match</span>'
+                        : '<span style="color:#dc2626;">\u2718 Name mismatch detected</span>')
+                    : '<span style="color:#92400e;">\u26A0 Medicine name could not be verified</span>';
+
+                let expiryRow = data.ocr_expiry_date
+                    ? (data.ocr_expiry_match
+                        ? '<span style="color:#16a34a;">\u2714 Expiry date appears to match</span>'
+                        : '<span style="color:#dc2626;">\u2718 Expiry date mismatch detected</span>')
+                    : '<span style="color:#92400e;">\u26A0 Expiry date could not be verified</span>';
+
+                let batchRow = data.ocr_batch_number
+                    ? '<span style="color:#4b5563;">Batch no.: ' + data.ocr_batch_number + '</span>'
+                    : '<span style="color:#9ca3af;">Batch number not detected</span>';
+
+                content.innerHTML = `
+                    <div style="margin-bottom:6px;"><strong>Overall:</strong>
+                        <span style="color:${statusColor[s]}; font-weight:600;">
+                            ${statusEmoji[s]} ${statusLabel[s]}
+                        </span>
+                    </div>
+                    <div style="display:grid; gap:6px; font-size:13px;">
+                        <div>\ud83d\udc8a ${nameRow}</div>
+                        <div>\ud83d\udcc5 ${expiryRow}</div>
+                        <div>\ud83d\udccb ${batchRow}</div>
+                    </div>
+                `;
+                panel.style.display = 'block';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
             // ===== Form submission handling =====
             const form = document.getElementById('list-medicine-form');
             const submitButton = document.getElementById('submit-button');
@@ -455,10 +610,30 @@
                         }
                     }
 
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = 'Processing...';
+                    // Validate all three photos are selected
+                    const frontFile  = document.getElementById('front_image');
+                    const backFile   = document.getElementById('back_image');
+                    const expiryFile = document.getElementById('expiry_batch_image');
+                    if (!frontFile || !frontFile.files.length) {
+                        showToast('error', 'Photo Required', 'Please upload the Front Photo.');
+                        document.getElementById('photos-section').scrollIntoView({ behavior: 'smooth' });
+                        return;
+                    }
+                    if (!backFile || !backFile.files.length) {
+                        showToast('error', 'Photo Required', 'Please upload the Back Photo.');
+                        document.getElementById('photos-section').scrollIntoView({ behavior: 'smooth' });
+                        return;
+                    }
+                    if (!expiryFile || !expiryFile.files.length) {
+                        showToast('error', 'Photo Required', 'Please upload the Expiry/Batch Photo.');
+                        document.getElementById('photos-section').scrollIntoView({ behavior: 'smooth' });
+                        return;
+                    }
 
-                    // Submit the form using fetch
+                    submitButton.disabled = true;
+                    submitButton.innerHTML = '&#x23F3; Uploading &amp; Verifying...';
+
+                    // Submit the form using fetch (FormData automatically includes file inputs)
                     fetch(form.action, {
                         method: 'POST',
                         body: new FormData(form),
@@ -470,11 +645,22 @@
                     .then(data => {
                         if (data.success) {
                             showToast('success', 'Success!', data.message);
+                            // Show OCR result before redirecting
+                            renderOcrResult(data);
+                            // Reset photo previews
+                            ['front','back','expiry'].forEach(pfx => {
+                                const prev = document.getElementById(pfx === 'expiry' ? 'expiry-preview' : pfx + '-preview');
+                                const ph   = document.getElementById(pfx === 'expiry' ? 'expiry-placeholder' : pfx + '-placeholder');
+                                const st   = document.getElementById(pfx === 'expiry' ? 'expiry-status' : pfx + '-status');
+                                if (prev) { prev.style.display = 'none'; prev.src = ''; }
+                                if (ph)   { ph.style.display = 'flex'; }
+                                if (st)   { st.innerHTML = ''; }
+                            });
                             form.reset();
-                            // Redirect after 2 seconds
+                            // Redirect after 5 seconds to give user time to read OCR result
                             setTimeout(() => {
                                 window.location.href = '/my-activities';
-                            }, 2000);
+                            }, 5000);
                         } else {
                             showToast('error', 'Error!', data.message);
                         }

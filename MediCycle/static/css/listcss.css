@@ -629,4 +629,196 @@
         opacity: 0;
     }
 }
-         
+
+/* =====================================================
+   MEDICINE PHOTOS SECTION STYLES
+   ===================================================== */
+
+.photo-upload-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 600px) {
+    .photo-upload-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.photo-upload-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.photo-upload-item label.required-label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #1f2937;
+}
+
+.photo-drop-zone {
+    position: relative;
+    width: 100%;
+    height: 160px;
+    border: 2px dashed #93c5fd;
+    border-radius: 10px;
+    background: #f0f9ff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    overflow: hidden;
+}
+
+.photo-drop-zone:hover {
+    border-color: #2563eb;
+    background: #dbeafe;
+}
+
+.photo-drop-zone:has(input:focus) {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.photo-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: #6b7280;
+    font-size: 13px;
+    text-align: center;
+    padding: 8px;
+    pointer-events: none;
+}
+
+.photo-status {
+    margin-top: 6px;
+    font-size: 12px;
+    min-height: 18px;
+}
+
+/* =====================================================
+   MEDICINE IMAGE VIEWER MODAL (FindMedicine page)
+   ===================================================== */
+
+#imageViewerModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease;
+}
+
+#imageViewerModal .ivm-inner {
+    background: #fff;
+    border-radius: 16px;
+    max-width: 900px;
+    width: 94%;
+    margin: 40px auto;
+    padding: 28px 24px 20px;
+    position: relative;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+#imageViewerModal .ivm-close {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    font-size: 24px;
+    cursor: pointer;
+    color: #6b7280;
+    line-height: 1;
+    background: none;
+    border: none;
+    transition: color 0.2s;
+}
+#imageViewerModal .ivm-close:hover { color: #111; }
+
+#imageViewerModal .ivm-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 20px;
+}
+
+.ivm-photos-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+    .ivm-photos-grid { grid-template-columns: 1fr; }
+}
+
+.ivm-photo-card {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+
+.ivm-photo-label {
+    padding: 8px 10px;
+    background: #f9fafb;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ivm-photo-img {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    display: block;
+    cursor: zoom-in;
+    transition: transform 0.2s;
+}
+.ivm-photo-img:hover { transform: scale(1.03); }
+
+.ivm-no-image {
+    width: 100%;
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f3f4f6;
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+.ivm-ocr-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+}
+.ivm-ocr-badge.matched  { background:#d1fae5; color:#065f46; }
+.ivm-ocr-badge.mismatched { background:#fee2e2; color:#991b1b; }
+.ivm-ocr-badge.unclear  { background:#fef3c7; color:#92400e; }
+.ivm-ocr-badge.no-data  { background:#f3f4f6; color:#6b7280; }
+
+.ivm-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}

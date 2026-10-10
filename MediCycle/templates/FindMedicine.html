@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/findmed.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/listcss.css') }}">
     
     <!-- Toastify CSS -->
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
@@ -245,7 +246,7 @@
                                 <th>Expiry Date</th>
                                 <th>Available Qty</th>
                                 <th>Type/Price</th>
-                                <th style="border-radius: 0 8px 0 0;">Request Medicine</th>
+                                <th style="border-radius: 0 8px 0 0;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="medicineList">
@@ -263,8 +264,19 @@
                                         <span class="badge badge-paid"><i class="fas fa-rupee-sign" style="margin-right: 4px;"></i> {{ medicine.type_price.split(':')[1] if ':' in medicine.type_price else medicine.type_price }}</span>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    <button class="btn request-btn" style="background-color: #4CAF50; color: white; padding: 10px 15px; border-radius: 6px; border: none; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);" data-name="{{ medicine.medicine_name }}" data-type="{{ medicine.type_price }}">
+                                <td style="white-space:nowrap;">
+                                    {% if medicine.front_image_url %}
+                                    <button class="btn view-images-btn" style="background:#0ea5e9; color:white; padding:7px 10px; border-radius:6px; border:none; font-size:12px; font-weight:500; cursor:pointer; margin-bottom:4px; display:inline-flex; align-items:center; gap:5px;"
+                                        data-id="{{ medicine.id }}"
+                                        data-name="{{ medicine.medicine_name }}"
+                                        data-front="{{ url_for('static', filename=medicine.front_image_url) }}"
+                                        data-back="{{ url_for('static', filename=medicine.back_image_url) if medicine.back_image_url else '' }}"
+                                        data-expiry="{{ url_for('static', filename=medicine.expiry_batch_image_url) if medicine.expiry_batch_image_url else '' }}"
+                                        data-ocr-status="{{ medicine.ocr_verification_status or 'no-data' }}">
+                                        📷 View Images
+                                    </button>
+                                    {% endif %}
+                                    <button class="btn request-btn" style="background-color: #4CAF50; color: white; padding: 7px 10px; border-radius: 6px; border: none; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); font-size:12px;" data-name="{{ medicine.medicine_name }}" data-type="{{ medicine.type_price }}">
                                         <i class="fas fa-hand-holding-medical" style="color: white;"></i> Request
                                     </button>
                                 </td>
@@ -305,6 +317,21 @@
                                 {% endif %}
                             </span>
                         </div>
+                        {% if medicine.front_image_url %}
+                        <div class="card-row" style="margin-top: 10px;">
+                            <span class="card-value" style="width:100%;">
+                                <button class="btn view-images-btn" style="background:#0ea5e9; color:white; padding:9px 14px; border-radius:6px; border:none; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; width:100%;"
+                                    data-id="{{ medicine.id }}"
+                                    data-name="{{ medicine.medicine_name }}"
+                                    data-front="{{ url_for('static', filename=medicine.front_image_url) }}"
+                                    data-back="{{ url_for('static', filename=medicine.back_image_url) if medicine.back_image_url else '' }}"
+                                    data-expiry="{{ url_for('static', filename=medicine.expiry_batch_image_url) if medicine.expiry_batch_image_url else '' }}"
+                                    data-ocr-status="{{ medicine.ocr_verification_status or 'no-data' }}">
+                                    📷 View Medicine Images
+                                </button>
+                            </span>
+                        </div>
+                        {% endif %}
                         <div class="card-row" style="margin-top: 15px; border-top: 1px solid #f0f0f0; padding-top: 15px;">
                             <span class="card-label" style="color: #4CAF50; font-weight: bold;">Request:</span>
                             <span class="card-value" style="width: 100%;">
@@ -327,6 +354,40 @@
         </div>
     </main>
 
+
+    </div>
+
+    <!-- ============================================================
+         IMAGE VIEWER MODAL (new)
+         ============================================================ -->
+    <div id="imageViewerModal">
+        <div class="ivm-inner">
+            <button class="ivm-close" id="ivmClose" title="Close">&times;</button>
+            <div class="ivm-title" id="ivmMedicineName">📷 Medicine Images</div>
+            <div class="ivm-photos-grid">
+                <!-- Front -->
+                <div class="ivm-photo-card">
+                    <div class="ivm-photo-label">📷 Front</div>
+                    <div id="ivmFrontSlot"></div>
+                </div>
+                <!-- Back -->
+                <div class="ivm-photo-card">
+                    <div class="ivm-photo-label">📷 Back</div>
+                    <div id="ivmBackSlot"></div>
+                </div>
+                <!-- Expiry/Batch -->
+                <div class="ivm-photo-card">
+                    <div class="ivm-photo-label">📷 Expiry / Batch</div>
+                    <div id="ivmExpirySlot"></div>
+                </div>
+            </div>
+            <!-- OCR verification badge -->
+            <div id="ivmOcrBadgeRow" style="margin-bottom:14px;"></div>
+            <div class="ivm-footer">
+                <button type="button" id="ivmCloseBtn" style="padding:8px 20px; border-radius:8px; border:1px solid #d1d5db; background:#f3f4f6; cursor:pointer; font-size:14px;">Close</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Request Medicine Modal -->
     <div id="requestModal" class="modal">
@@ -454,8 +515,18 @@
                         mobileCards.innerHTML = '<div class="medicine-card"><div class="card-title">Searching...</div></div>';
                     }
 
-                    // Fetch medicines based on search term
-                    fetch(`/find-medicine?search=${encodeURIComponent(searchTerm)}`, {
+                    // Fetch medicines based on search term and filters
+                    const locationVal = locationFilter ? locationFilter.value : '';
+                    const expiryVal = expiryFilter ? expiryFilter.value : '';
+                    const typeVal = donationTypeFilter ? donationTypeFilter.value : '';
+
+                    const queryParams = new URLSearchParams();
+                    if (searchTerm) queryParams.append('search', searchTerm);
+                    if (locationVal) queryParams.append('location', locationVal);
+                    if (expiryVal) queryParams.append('expiry', expiryVal);
+                    if (typeVal) queryParams.append('type', typeVal);
+
+                    fetch(`/find-medicine?${queryParams.toString()}`, {
                         headers: {
                             'X-Requested-With': 'XMLHttpRequest'
                         }
@@ -473,6 +544,20 @@
                                 let html = '';
                                 data.medicines.forEach(medicine => {
                                     console.log("DEBUG: Processing medicine:", medicine);
+                                    let imageBtnHtml = '';
+                                    if (medicine.front_image_url) {
+                                        imageBtnHtml = `
+                                            <button class="btn view-images-btn" style="background:#0ea5e9; color:white; padding:7px 10px; border-radius:6px; border:none; font-size:12px; font-weight:500; cursor:pointer; margin-bottom:4px; display:inline-flex; align-items:center; gap:5px;"
+                                                data-id="${medicine.id}"
+                                                data-name="${medicine.medicine_name}"
+                                                data-front="/static/${medicine.front_image_url}"
+                                                data-back="${medicine.back_image_url ? '/static/' + medicine.back_image_url : ''}"
+                                                data-expiry="${medicine.expiry_batch_image_url ? '/static/' + medicine.expiry_batch_image_url : ''}"
+                                                data-ocr-status="${medicine.ocr_verification_status || 'no-data'}">
+                                                📷 View Images
+                                            </button>
+                                        `;
+                                    }
                                     html += `
                                         <tr>
                                             <td style="font-weight: 500; color: var(--primary-blue);">${medicine.medicine_name}</td>
@@ -486,8 +571,9 @@
                                                     : `<span class="badge badge-paid"><i class="fas fa-rupee-sign" style="margin-right: 4px;"></i> ${medicine.type_price.split(':')[1] || medicine.type_price}</span>`
                                                 }
                                             </td>
-                                            <td>
-                                                <button class="btn request-btn" style="background-color: #4CAF50; color: white; padding: 10px 15px; border-radius: 6px; border: none; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);" data-name="${medicine.medicine_name}" data-type="${medicine.type_price}">
+                                            <td style="white-space:nowrap;">
+                                                ${imageBtnHtml}
+                                                <button class="btn request-btn" style="background-color: #4CAF50; color: white; padding: 7px 10px; border-radius: 6px; border: none; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); font-size:12px;" data-name="${medicine.medicine_name}" data-type="${medicine.type_price}">
                                                     <i class="fas fa-hand-holding-medical" style="color: white;"></i> Request
                                                 </button>
                                             </td>
@@ -529,6 +615,21 @@
                                                     }
                                                 </span>
                                             </div>
+                                            ${medicine.front_image_url ? `
+                                            <div class="card-row" style="margin-top: 10px;">
+                                                <span class="card-value" style="width:100%;">
+                                                    <button class="btn view-images-btn" style="background:#0ea5e9; color:white; padding:9px 14px; border-radius:6px; border:none; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; width:100%;"
+                                                        data-id="${medicine.id}"
+                                                        data-name="${medicine.medicine_name}"
+                                                        data-front="/static/${medicine.front_image_url}"
+                                                        data-back="${medicine.back_image_url ? '/static/' + medicine.back_image_url : ''}"
+                                                        data-expiry="${medicine.expiry_batch_image_url ? '/static/' + medicine.expiry_batch_image_url : ''}"
+                                                        data-ocr-status="${medicine.ocr_verification_status || 'no-data'}">
+                                                        📷 View Medicine Images
+                                                    </button>
+                                                </span>
+                                            </div>
+                                            ` : ''}
                                             <div class="card-row" style="margin-top: 15px; border-top: 1px solid #f0f0f0; padding-top: 15px;">
                                                 <span class="card-label" style="color: #4CAF50; font-weight: bold;">Request:</span>
                                                 <span class="card-value" style="width: 100%;">
@@ -543,8 +644,9 @@
                                 mobileCards.innerHTML = html;
                             }
 
-                            // Reattach event listeners to new request buttons
+                            // Reattach event listeners to new buttons
                             attachRequestButtonListeners();
+                            attachViewImagesButtonListeners();
                         } else {
                             console.log("DEBUG: Error in response:", data.message);
                             if (medicineList) {
@@ -568,7 +670,7 @@
             function attachRequestButtonListeners() {
                 const requestButtons = document.querySelectorAll('.request-btn');
                 requestButtons.forEach(button => {
-                    button.addEventListener('click', function() {
+                    button.onclick = function() {
                         const medicineName = this.getAttribute('data-name');
                         const medicineType = this.getAttribute('data-type');
                         
@@ -585,9 +687,109 @@
                         }
                         
                         requestModal.style.display = 'block';
-                    });
+                    };
                 });
             }
+
+            // Function to attach event listeners to View Images buttons
+            function attachViewImagesButtonListeners() {
+                const viewButtons = document.querySelectorAll('.view-images-btn');
+                const modal = document.getElementById('imageViewerModal');
+                const modalTitle = document.getElementById('ivmMedicineName');
+                const frontSlot = document.getElementById('ivmFrontSlot');
+                const backSlot = document.getElementById('ivmBackSlot');
+                const expirySlot = document.getElementById('ivmExpirySlot');
+                const ocrBadgeRow = document.getElementById('ivmOcrBadgeRow');
+
+                viewButtons.forEach(btn => {
+                    btn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const name = this.getAttribute('data-name') || 'Medicine';
+                        const front = this.getAttribute('data-front');
+                        const back = this.getAttribute('data-back');
+                        const expiry = this.getAttribute('data-expiry');
+                        const ocrStatus = this.getAttribute('data-ocr-status') || 'no-data';
+
+                        if (modalTitle) modalTitle.textContent = '📷 Medicine Images \u2014 ' + name;
+
+                        if (frontSlot) {
+                            frontSlot.innerHTML = front
+                                ? `<img class="ivm-photo-img" src="${front}" alt="Front Photo" onclick="window.open(this.src, '_blank')" title="Click to view full size">`
+                                : `<div class="ivm-no-image">No image available</div>`;
+                        }
+
+                        if (backSlot) {
+                            backSlot.innerHTML = back
+                                ? `<img class="ivm-photo-img" src="${back}" alt="Back Photo" onclick="window.open(this.src, '_blank')" title="Click to view full size">`
+                                : `<div class="ivm-no-image">No image available</div>`;
+                        }
+
+                        if (expirySlot) {
+                            expirySlot.innerHTML = expiry
+                                ? `<img class="ivm-photo-img" src="${expiry}" alt="Expiry / Batch Photo" onclick="window.open(this.src, '_blank')" title="Click to view full size">`
+                                : `<div class="ivm-no-image">No image available</div>`;
+                        }
+
+                        if (ocrBadgeRow) {
+                            let badgeClass = 'no-data';
+                            let badgeText = 'ℹ️ Verification: Status pending or no OCR data';
+                            if (ocrStatus === 'matched') {
+                                badgeClass = 'matched';
+                                badgeText = '✅ OCR Verification: Package information matches listing details';
+                            } else if (ocrStatus === 'mismatched') {
+                                badgeClass = 'mismatched';
+                                badgeText = '❌ OCR Verification: Package information does not match listing details';
+                            } else if (ocrStatus === 'unclear') {
+                                badgeClass = 'unclear';
+                                badgeText = '⚠️ OCR Verification: Package text could not be verified with confidence';
+                            }
+
+                            ocrBadgeRow.innerHTML = `
+                                <div style="margin-top: 8px;">
+                                    <span class="ivm-ocr-badge ${badgeClass}">${badgeText}</span>
+                                    <div style="font-size:11px; color:#6b7280; margin-top:4px;">
+                                        * Verification check compares visible packaging text with seller inputs and does not certify medicinal safety or authenticity.
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        if (modal) modal.style.display = 'block';
+                    };
+                });
+            }
+
+            // Image viewer modal close handlers
+            const ivmModal = document.getElementById('imageViewerModal');
+            const ivmClose = document.getElementById('ivmClose');
+            const ivmCloseBtn = document.getElementById('ivmCloseBtn');
+
+            if (ivmClose) {
+                ivmClose.addEventListener('click', function() {
+                    if (ivmModal) ivmModal.style.display = 'none';
+                });
+            }
+            if (ivmCloseBtn) {
+                ivmCloseBtn.addEventListener('click', function() {
+                    if (ivmModal) ivmModal.style.display = 'none';
+                });
+            }
+            window.addEventListener('click', function(e) {
+                if (e.target === ivmModal) {
+                    ivmModal.style.display = 'none';
+                }
+            });
+            window.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && ivmModal && ivmModal.style.display === 'block') {
+                    ivmModal.style.display = 'none';
+                }
+            });
+
+            // Initial attachment of listeners
+            attachRequestButtonListeners();
+            attachViewImagesButtonListeners();
 
             // Handle search input
             if (medicineSearch) {
